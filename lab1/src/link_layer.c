@@ -21,6 +21,7 @@ int llOpenTx(LinkLayer llParameters)
     // This example code shows how to open the serial port and send a string.
     // TODO: Adapt and extend this code according to the specifications of the project.
     // ----------------------------------------------------
+    unsigned char setFrame[5] = {0x7E, 0x03, 0x03, 0x03 ^ 0x03, 0x7E};
 
     if (openSerialPort(llParameters.serialPort, llParameters.baudRate) < 0)
     {
