@@ -5,8 +5,13 @@
 #include "link_layer.h"
 #include "serial_port.h"
 
+#include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
+
+#define FALSE 0
+#define TRUE 1
 
 // MISC
 #define _POSIX_SOURCE 1 // POSIX compliant source
@@ -23,6 +28,18 @@
 unsigned char set[FRAME_SIZE] = {FLAG, A_TX, C_SET, A_TX ^ C_SET, FLAG};
 unsigned char ua[FRAME_SIZE] = {FLAG, A_TX, C_UA, A_TX ^ C_UA, FLAG};
 
+// alarm
+int alarmEnabled = FALSE;
+int alarmCount = 0;
+
+void alarmHandler(int signal)
+{
+    alarmEnabled = FALSE;
+    alarmCount++;
+
+    printf("Alarm #%d received\n", alarmCount);
+}
+
 int isValidFrame(const unsigned char *frame, unsigned char control)
 {
     return frame[0] == FLAG &&
@@ -31,6 +48,8 @@ int isValidFrame(const unsigned char *frame, unsigned char control)
            frame[3] == (frame[1] ^ frame[2]) &&
            frame[4] == FLAG;
 }
+
+#define TIMEOUT 1
 
 int readFrame(unsigned char *frame)
 {
@@ -45,6 +64,8 @@ int readFrame(unsigned char *frame)
         // caso de erro
         if (r < 0)
         {
+            if (alarmEnabled == FALSE)
+                return TIMEOUT;
             perror("readByteSerialPort");
             return -1;
         }
@@ -90,27 +111,57 @@ int llOpenTx(LinkLayer llParameters)
 
     printf("Serial port %s opened\n", llParameters.serialPort);
 
-    if (writeFrame(set) < 0)
+    // Alarm Configuration
+    struct sigaction act = {0};
+    act.sa_handler = &alarmHandler;
+
+    if (sigaction(SIGALRM, &act, NULL) == -1)
     {
-        closeSerialPort();
-        return -1;
+        perror("sigaction");
+        exit(1);
     }
 
+    printf("Alarm Configured\n");
+    // End of Alarm Configuration
     unsigned char received_ua[FRAME_SIZE];
-    if (readFrame(received_ua) < 0)
+    int connected = FALSE;
+    alarmCount = 0;
+    while (alarmCount < llParameters.nRetransmissions && !connected)
     {
+
+        if (alarmEnabled == FALSE)
+        {
+
+            if (writeFrame(set) < 0)
+            {
+                closeSerialPort();
+                return -1;
+            }
+            alarm(llParameters.timeout);
+            alarmEnabled = TRUE;
+        }
+
+        int r = readFrame(received_ua);
+
+        if (r < 0)
+        {
+            closeSerialPort();
+            return -1;
+        }
+        else if (r == 0 && isValidFrame(received_ua, C_UA))
+        {
+            connected = TRUE;
+            alarm(0); // cancelamos o alarm que estava a correr
+            printf("UA received, connection established\n");
+        }
+    }
+
+    if (!connected)
+    {
+        printf("Connection failed\n");
         closeSerialPort();
         return -1;
     }
-
-    if (!isValidFrame(received_ua, C_UA))
-    {
-        printf("Invalid UA frame\n");
-        closeSerialPort();
-        return -1;
-    }
-
-    printf("UA received, connection established\n");
 
     // Close serial port
     if (closeSerialPort() < 0)
@@ -136,7 +187,7 @@ int llOpenRx(LinkLayer llParameters)
     printf("Serial port %s opened\n", llParameters.serialPort);
 
     unsigned char received_set[FRAME_SIZE];
-    if (readFrame(received_set) < 0)
+    if (readFrame(received_set) != 0)
     {
         closeSerialPort();
         return -1;
