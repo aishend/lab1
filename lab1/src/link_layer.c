@@ -12,15 +12,22 @@
 #define _POSIX_SOURCE 1 // POSIX compliant source
 #define BUF_SIZE 256
 
+// FLAG
+#define FLAG 0x7E
+#define A_TX 0x03
+#define C_SET 0x03
+#define C_UA 0x07
+
+#define FRAME_SIZE 5
+
+unsigned char set[FRAME_SIZE] = {FLAG, A_TX, C_SET, A_TX ^ C_SET, FLAG};
+unsigned char ua[FRAME_SIZE] = {FLAG, A_TX, C_UA, A_TX ^ C_UA, FLAG};
+
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
 int llOpenTx(LinkLayer llParameters)
 {
-    // ----------------------------------------------------
-    // This example code shows how to open the serial port and send a string.
-    // TODO: Adapt and extend this code according to the specifications of the project.
-    // ----------------------------------------------------
 
     if (openSerialPort(llParameters.serialPort, llParameters.baudRate) < 0)
     {
@@ -30,20 +37,7 @@ int llOpenTx(LinkLayer llParameters)
 
     printf("Serial port %s opened\n", llParameters.serialPort);
 
-    // Create string to send
-    unsigned char buf[BUF_SIZE] = {0};
-
-    for (int i = 0; i < BUF_SIZE; i++)
-    {
-        buf[i] = 'a' + i % 26;
-    }
-
-    // In non-canonical mode, '\n' does not end the writing.
-    // Test this condition by placing a '\n' in the middle of the buffer.
-    // The whole buffer must be sent even with the '\n'.
-    buf[5] = '\n';
-
-    int bytes = writeBytesSerialPort(buf, BUF_SIZE);
+    int bytes = writeBytesSerialPort(set, sizeof(set));
     printf("%d bytes written to serial port\n", bytes);
 
     // Wait until all bytes have been written to the serial port
@@ -63,10 +57,6 @@ int llOpenTx(LinkLayer llParameters)
 
 int llOpenRx(LinkLayer llParameters)
 {
-    // ----------------------------------------------------
-    // This example code shows how to open the serial port and receive a string.
-    // TODO: Adapt and extend this code according to the specifications of the project.
-    // ----------------------------------------------------
 
     if (openSerialPort(llParameters.serialPort, llParameters.baudRate) < 0)
     {
@@ -76,34 +66,37 @@ int llOpenRx(LinkLayer llParameters)
 
     printf("Serial port %s opened\n", llParameters.serialPort);
 
-    // Read from serial port until the 'z' char is received.
-
-    // NOTE: This while() cycle is a simple example showing how to read from the serial port.
-    // It must be changed in order to respect the specifications of the protocol indicated in the Lab guide.
-
-    // TODO: Save the received bytes in a buffer array and print it at the end of the program.
-    volatile int STOP = FALSE;
-    int nBytesBuf = 0;
-
-    while (STOP == FALSE)
+    unsigned char frame[FRAME_SIZE];
+    int i = 0;
+    while (i < FRAME_SIZE)
     {
-        // Read one byte from serial port.
-        // NOTE: You must check how many bytes were actually read by reading the return value.
-        // In this example, we assume that the byte is always read, which may not be true.
         unsigned char byte;
-        int bytes = readByteSerialPort(&byte);
-        nBytesBuf += bytes;
 
-        printf("Byte received: %c\n", byte);
+        // retorna o numero de bytes lidos
+        int r = readByteSerialPort(&byte);
 
-        if (byte == 'z')
+        // caso de erro
+        if (r < 0)
         {
-            printf("Received 'z' char. Stop reading from serial port.\n");
-            STOP = TRUE;
+            perror("readByteSerialPort");
+            return -1;
+        
+        } else if (r == 0) {
+            continue;
+
+        } else {
+            frame[i] = byte;
+            i++;
         }
     }
 
-    printf("Total bytes received: %d\n", nBytesBuf);
+    for (int j = 0; j < FRAME_SIZE; j++) {
+        printf("0x%02X ", frame[k]);
+    }
+    printf("\n");
+
+
+    printf("Total bytes received: %d\n", i);
 
     // Close serial port
     if (closeSerialPort() < 0)
