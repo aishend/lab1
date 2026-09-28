@@ -23,6 +23,59 @@
 unsigned char set[FRAME_SIZE] = {FLAG, A_TX, C_SET, A_TX ^ C_SET, FLAG};
 unsigned char ua[FRAME_SIZE] = {FLAG, A_TX, C_UA, A_TX ^ C_UA, FLAG};
 
+int isValidFrame(const unsigned char *frame, unsigned char control)
+{
+    return frame[0] == FLAG &&
+           frame[1] == A_TX &&
+           frame[2] == control &&
+           frame[3] == (frame[1] ^ frame[2]) &&
+           frame[4] == FLAG;
+}
+
+int readFrame(unsigned char *frame)
+{
+    int i = 0;
+    while (i < FRAME_SIZE)
+    {
+        unsigned char byte;
+
+        // retorna o numero de bytes lidos
+        int r = readByteSerialPort(&byte);
+
+        // caso de erro
+        if (r < 0)
+        {
+            perror("readByteSerialPort");
+            return -1;
+        }
+        else if (r == 0)
+        {
+            continue;
+        }
+        else
+        {
+            frame[i] = byte;
+            i++;
+        }
+    }
+
+    return 0;
+}
+
+int writeFrame(const unsigned char *frame)
+{
+    int bytes = writeBytesSerialPort(frame, FRAME_SIZE);
+    printf("%d bytes written to serial port\n", bytes);
+
+    if (bytes != FRAME_SIZE)
+    {
+        perror("writeBytesSerialPort");
+        return -1;
+    }
+
+    return 0;
+}
+
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
@@ -37,11 +90,27 @@ int llOpenTx(LinkLayer llParameters)
 
     printf("Serial port %s opened\n", llParameters.serialPort);
 
-    int bytes = writeBytesSerialPort(set, sizeof(set));
-    printf("%d bytes written to serial port\n", bytes);
+    if (writeFrame(set) < 0)
+    {
+        closeSerialPort();
+        return -1;
+    }
 
-    // Wait until all bytes have been written to the serial port
-    sleep(1);
+    unsigned char received_ua[FRAME_SIZE];
+    if (readFrame(received_ua) < 0)
+    {
+        closeSerialPort();
+        return -1;
+    }
+
+    if (!isValidFrame(received_ua, C_UA))
+    {
+        printf("Invalid UA frame\n");
+        closeSerialPort();
+        return -1;
+    }
+
+    printf("UA received, connection established\n");
 
     // Close serial port
     if (closeSerialPort() < 0)
@@ -66,37 +135,36 @@ int llOpenRx(LinkLayer llParameters)
 
     printf("Serial port %s opened\n", llParameters.serialPort);
 
-    unsigned char frame[FRAME_SIZE];
-    int i = 0;
-    while (i < FRAME_SIZE)
+    unsigned char received_set[FRAME_SIZE];
+    if (readFrame(received_set) < 0)
     {
-        unsigned char byte;
-
-        // retorna o numero de bytes lidos
-        int r = readByteSerialPort(&byte);
-
-        // caso de erro
-        if (r < 0)
-        {
-            perror("readByteSerialPort");
-            return -1;
-        
-        } else if (r == 0) {
-            continue;
-
-        } else {
-            frame[i] = byte;
-            i++;
-        }
+        closeSerialPort();
+        return -1;
     }
 
-    for (int j = 0; j < FRAME_SIZE; j++) {
-        printf("0x%02X ", frame[k]);
+    for (int j = 0; j < FRAME_SIZE; j++)
+    {
+        printf("0x%02X ", received_set[j]);
     }
-    printf("\n");
 
+    printf("\nTotal bytes received: %d\n", FRAME_SIZE);
 
-    printf("Total bytes received: %d\n", i);
+    if (!isValidFrame(received_set, C_SET))
+    {
+
+        printf("Invalid SET frame\n");
+        closeSerialPort();
+        return -1;
+    }
+
+    if (writeFrame(ua) < 0)
+    {
+        closeSerialPort();
+        return -1;
+    }
+
+    // Wait until all bytes have been written to the serial port
+    sleep(1);
 
     // Close serial port
     if (closeSerialPort() < 0)
